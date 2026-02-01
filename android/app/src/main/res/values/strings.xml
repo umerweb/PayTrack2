@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Bill Reminder</string>
+    <string name="title_activity_main">Bill Reminder</string>
+    <string name="package_name">com.billreminder.app</string>
+    <string name="custom_url_scheme">com.billreminder.app</string>
+</resources>

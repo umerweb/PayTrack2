@@ -1,0 +1,24 @@
+# Add these lines to your .gitignore file
+
+# Capacitor
+android/
+ios/
+*.keystore
+*.jks
+
+# Mobile build artifacts
+*.apk
+*.aab
+*.ipa
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+
+# iOS
+ios/App/Pods/
+ios/App/build/
+ios/App/App.xcworkspace/xcuserdata/
+*.xcworkspace/xcshareddata/

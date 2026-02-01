@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="https://layout.dev/assets/templates/layout.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Bill Reminder</title>
+    <meta name="description" content="Never miss a bill payment again. Track and manage all your bills in one place." />
+    <meta name="author" content="Bill Reminder" />
+
+    <!-- Mobile App Meta Tags -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#8b5cf6" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="Bill Reminder" />
+    <meta property="og:description" content="Never miss a bill payment again. Track and manage all your bills in one place." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://layout.dev/assets/images/og-image.jpg" />
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@layout_dev" />
+    <meta name="twitter:image" content="https://layout.dev/assets/images/og-image.jpg" />
+
+    <!-- Prevent text size adjustment on mobile -->
+    <style>
+      * {
+        -webkit-text-size-adjust: 100%;
+        -moz-text-size-adjust: 100%;
+        -ms-text-size-adjust: 100%;
+        text-size-adjust: 100%;
+      }
+      
+      /* Safe area insets for notched devices */
+      body {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
+        padding-left: env(safe-area-inset-left);
+        padding-right: env(safe-area-inset-right);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
