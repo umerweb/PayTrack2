@@ -97,6 +97,7 @@ export const BillProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (enabled) {
         await NotificationService.initialize();
         // Schedule notifications for all existing bills
+        console.log('Permission granted, scheduling all bills...');
         await NotificationService.scheduleAllBills(bills);
       }
       
@@ -221,13 +222,18 @@ export const BillProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Schedule notifications whenever bills change
   useEffect(() => {
-    if (isNative && notificationsEnabled && bills.length > 0) {
-      console.log('Bills changed, rescheduling notifications...');
-      NotificationService.scheduleAllBills(bills).catch(error => {
-        console.error('Error scheduling notifications:', error);
-      });
+    if (isNative && notificationsEnabled && bills.length > 0 && isInitialized) {
+      console.log('Bills changed, rescheduling all notifications...');
+      // Use a small delay to ensure state is fully updated
+      const timer = setTimeout(() => {
+        NotificationService.scheduleAllBills(bills).catch(error => {
+          console.error('Error scheduling notifications:', error);
+        });
+      }, 500);
+      
+      return () => clearTimeout(timer);
     }
-  }, [bills, isNative, notificationsEnabled]);
+  }, [bills, isNative, notificationsEnabled, isInitialized]);
 
   const loadLocalData = () => {
     console.log('Loading local data...');
@@ -484,11 +490,6 @@ export const BillProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setBills(updatedBills);
       saveToLocalStorage(updatedBills, settings);
     }
-
-    // Schedule notification for the new bill
-    if (isNative && notificationsEnabled && !newBill.isPaid) {
-      await NotificationService.scheduleBillReminder(newBill);
-    }
   };
 
   const updateBill = async (id: string, updatedBill: Partial<Bill>) => {
@@ -528,17 +529,6 @@ export const BillProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updatedBills = bills.map(bill => bill.id === id ? { ...bill, ...updatedBill } : bill);
     setBills(updatedBills);
     saveToLocalStorage(updatedBills, settings);
-
-    // Update notification for the bill
-    if (isNative && notificationsEnabled) {
-      const bill = updatedBills.find(b => b.id === id);
-      if (bill) {
-        await NotificationService.cancelBillReminder(id);
-        if (!bill.isPaid) {
-          await NotificationService.scheduleBillReminder(bill);
-        }
-      }
-    }
   };
 
   const deleteBill = async (id: string) => {
@@ -566,16 +556,26 @@ export const BillProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updatedBills = bills.filter(bill => bill.id !== id);
     setBills(updatedBills);
     saveToLocalStorage(updatedBills, settings);
-
-    // Cancel notification for deleted bill
-    if (isNative && notificationsEnabled) {
-      await NotificationService.cancelBillReminder(id);
-    }
   };
 
   const markAsPaid = async (id: string) => {
     console.log('Marking bill as paid:', id);
+    
+    // Find the bill to get its details
+    const bill = bills.find(b => b.id === id);
+    if (!bill) {
+      console.error('Bill not found:', id);
+      return;
+    }
+    
+    // Update the bill
     await updateBill(id, { isPaid: true });
+    
+    // Show "bill paid" notification
+    if (isNative && notificationsEnabled) {
+      console.log('Showing bill paid notification');
+      await NotificationService.showBillPaidNotification(bill.name, bill.amount);
+    }
   };
 
   const updateSettings = async (newSettings: Partial<UserSettings>) => {
