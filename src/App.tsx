@@ -1,3 +1,7 @@
+import { useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
+import { PushNotifications } from "@capacitor/push-notifications";
+
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,6 +10,7 @@ import { Routes, Route, BrowserRouter } from "react-router-dom";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { BillProvider } from "@/contexts/BillContext";
+
 import Onboarding from "@/pages/Onboarding";
 import Dashboard from "@/pages/Dashboard";
 import Insights from "@/pages/Insights";
@@ -16,6 +21,38 @@ import NotFound from "@/pages/NotFound";
 const queryClient = new QueryClient();
 
 function App() {
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+
+    const initPushNotifications = async () => {
+      const permission = await PushNotifications.requestPermissions();
+
+      if (permission.receive === "granted") {
+        await PushNotifications.register();
+      }
+    };
+
+    // Register listeners ONCE
+    PushNotifications.addListener("registration", token => {
+      console.log("✅ Push token:", token.value);
+    });
+
+    PushNotifications.addListener("registrationError", error => {
+      console.error("❌ Push registration error:", error);
+    });
+
+    PushNotifications.addListener("pushNotificationReceived", notification => {
+      console.log("📩 Push received:", notification);
+    });
+
+    PushNotifications.addListener("pushNotificationActionPerformed", action => {
+      console.log("👉 Push action:", action);
+    });
+
+    initPushNotifications();
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="bill-reminder-theme">
