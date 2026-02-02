@@ -10,9 +10,10 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { currencies } from '@/utils/currencyUtils';
 import { useToast } from '@/hooks/use-toast';
-import { User, Mail, DollarSign, Cloud, Palette, LogOut, Save, AlertCircle, Bell } from 'lucide-react';
+import { User, Mail, DollarSign, Cloud, Palette, LogOut, Save, AlertCircle, Bell, TestTube } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AuthService } from '@/services/AuthService';
+import { NotificationService } from '@/services/NotificationService';
 import { Capacitor } from '@capacitor/core';
 
 const Settings = () => {
@@ -27,6 +28,7 @@ const Settings = () => {
   });
 
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
 
   const handleSave = async () => {
     try {
@@ -104,6 +106,51 @@ const Settings = () => {
           variant: 'destructive',
         });
       }
+    }
+  };
+
+  const handleTestNotification = async () => {
+    if (!isNative) {
+      toast({
+        title: 'Not available',
+        description: 'Notifications only work on mobile devices.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!notificationsEnabled) {
+      toast({
+        title: 'Enable notifications first',
+        description: 'Please enable notifications before testing.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsTesting(true);
+    try {
+      console.log('Sending test notification...');
+      await NotificationService.testNotification();
+      
+      toast({
+        title: 'Test notification sent!',
+        description: 'You should receive it in ~6 seconds. Check your notification tray.',
+      });
+      
+      // Also list pending notifications
+      setTimeout(async () => {
+        await NotificationService.listPendingNotifications();
+      }, 1000);
+    } catch (error) {
+      console.error('Error sending test notification:', error);
+      toast({
+        title: 'Test failed',
+        description: 'Could not send test notification. Check console.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsTesting(false);
     }
   };
 
@@ -191,7 +238,7 @@ const Settings = () => {
                   </CardTitle>
                   <CardDescription>Receive reminders for upcoming bills</CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
                   <div className="flex items-center justify-between">
                     <div>
                       <Label>Bill Reminders</Label>
@@ -208,12 +255,37 @@ const Settings = () => {
                       {notificationsEnabled ? 'Enabled' : 'Enable'}
                     </Button>
                   </div>
+                  
                   {notificationsEnabled && (
-                    <div className="mt-4 p-3 bg-muted rounded-lg text-sm">
-                      <p className="text-muted-foreground">
-                        ✓ You'll receive notifications at the time you set for each bill
-                      </p>
-                    </div>
+                    <>
+                      <div className="p-3 bg-muted rounded-lg text-sm space-y-1">
+                        <p className="text-muted-foreground">
+                          ✓ Notifications at the time you set for each bill
+                        </p>
+                        <p className="text-muted-foreground">
+                          ✓ Recurring reminders every 2 hours if enabled
+                        </p>
+                        <p className="text-muted-foreground">
+                          ✓ Confirmation when you mark bills as paid
+                        </p>
+                      </div>
+                      
+                      <Button
+                        onClick={handleTestNotification}
+                        variant="secondary"
+                        className="w-full"
+                        disabled={isTesting}
+                      >
+                        <TestTube size={16} className="mr-2" />
+                        {isTesting ? 'Sending...' : 'Test Notification (6 sec)'}
+                      </Button>
+                      
+                      {isTesting && (
+                        <p className="text-xs text-center text-muted-foreground">
+                          Check your notification tray in 6 seconds...
+                        </p>
+                      )}
+                    </>
                   )}
                 </CardContent>
               </Card>

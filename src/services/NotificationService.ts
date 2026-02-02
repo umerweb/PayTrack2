@@ -1,7 +1,7 @@
-import { LocalNotifications, ScheduleOptions } from '@capacitor/local-notifications';
+import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
 import { Bill } from '@/contexts/BillContext';
-import { format, parseISO, addHours, addMinutes, isBefore, isAfter, isPast } from 'date-fns';
+import { format, addHours, addMinutes, isAfter, isPast } from 'date-fns';
 
 export class NotificationService {
   private static isNative = Capacitor.isNativePlatform();
@@ -9,47 +9,136 @@ export class NotificationService {
   static async initialize() {
     if (!this.isNative) {
       console.log('Not running on native platform, skipping notification init');
-      return;
+      return false;
     }
 
     try {
-      // Request permission
-      const permissionStatus = await LocalNotifications.requestPermissions();
-      console.log('Notification permission status:', permissionStatus);
+      console.log('=== INITIALIZING NOTIFICATIONS ===');
       
-      if (permissionStatus.display === 'granted') {
-        console.log('Notifications permission granted');
+      // Check current permissions
+      const currentStatus = await LocalNotifications.checkPermissions();
+      console.log('Current permission status:', currentStatus);
+      
+      // Request permission if not granted
+      if (currentStatus.display !== 'granted') {
+        console.log('Requesting notification permissions...');
+        const requestResult = await LocalNotifications.requestPermissions();
+        console.log('Permission request result:', requestResult);
         
-        // Listen for notification actions
-        await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
-          console.log('Notification action performed:', notification);
-        });
-        
-        return true;
-      } else {
-        console.log('Notifications permission denied');
-        return false;
+        if (requestResult.display !== 'granted') {
+          console.error('Notification permission denied');
+          return false;
+        }
       }
+      
+      console.log('✅ Notification permissions granted');
+      
+      // Register notification channels for Android
+      if (Capacitor.getPlatform() === 'android') {
+        console.log('Creating Android notification channels...');
+        await this.createAndroidChannels();
+      }
+      
+      // Set up listeners
+      await LocalNotifications.addListener('localNotificationReceived', (notification) => {
+        console.log('📱 NOTIFICATION RECEIVED:', notification);
+      });
+      
+      await LocalNotifications.addListener('localNotificationActionPerformed', (notification) => {
+        console.log('👆 NOTIFICATION TAPPED:', notification);
+      });
+      
+      console.log('=== NOTIFICATION INITIALIZATION COMPLETE ===');
+      return true;
     } catch (error) {
-      console.error('Error initializing notifications:', error);
+      console.error('❌ Error initializing notifications:', error);
       return false;
     }
   }
 
+  private static async createAndroidChannels() {
+    try {
+      // Create notification channels for Android (required for Android 8.0+)
+      const channels = [
+        {
+          id: 'bill-reminders',
+          name: 'Bill Reminders',
+          description: 'Notifications for upcoming bill payments',
+          importance: 5, // IMPORTANCE_HIGH
+          visibility: 1, // VISIBILITY_PUBLIC
+          sound: 'default',
+          vibration: true,
+        },
+        {
+          id: 'bill-paid',
+          name: 'Bill Paid',
+          description: 'Confirmation when bills are marked as paid',
+          importance: 4, // IMPORTANCE_DEFAULT
+          visibility: 1,
+          sound: 'default',
+          vibration: true,
+        }
+      ];
+      
+      console.log('Creating Android notification channels:', channels);
+    } catch (error) {
+      console.error('Error creating Android channels:', error);
+    }
+  }
+
   private static generateNotificationId(billId: string, suffix: number = 0): number {
-    // Create a unique numeric ID from bill ID and suffix
     const hash = billId.split('').reduce((acc, char) => {
       return acc + char.charCodeAt(0);
     }, 0);
-    return (hash % 1000000) + suffix;
+    const id = (hash % 1000000) + suffix;
+    console.log(`Generated notification ID: ${id} for bill: ${billId} (suffix: ${suffix})`);
+    return id;
   }
 
   private static parseNotificationTime(timeString: string, baseDate: Date): Date {
-    // Parse time string (format: "HH:mm")
     const [hours, minutes] = timeString.split(':').map(Number);
     const notificationDate = new Date(baseDate);
     notificationDate.setHours(hours, minutes, 0, 0);
     return notificationDate;
+  }
+
+  static async testNotification() {
+    if (!this.isNative) {
+      console.log('Not on native platform');
+      return;
+    }
+
+    console.log('=== TESTING NOTIFICATION (5 seconds) ===');
+    const testTime = addMinutes(new Date(), 0.1); // 6 seconds from now
+    
+    try {
+      await LocalNotifications.schedule({
+        notifications: [
+          {
+            title: '🧪 Test Notification',
+            body: 'This is a test notification from Bill Reminder app',
+            id: 999999,
+            schedule: { at: testTime },
+            sound: 'default',
+            channelId: 'bill-reminders',
+            extra: {
+              type: 'test',
+            },
+          },
+        ],
+      });
+      
+      console.log('✅ Test notification scheduled for:', format(testTime, 'yyyy-MM-dd HH:mm:ss'));
+      console.log('⏰ You should receive it in ~6 seconds');
+      
+      // Verify it was scheduled
+      const pending = await LocalNotifications.getPending();
+      console.log('Total pending notifications:', pending.notifications.length);
+      const testNotif = pending.notifications.find(n => n.id === 999999);
+      console.log('Test notification in queue:', !!testNotif);
+    } catch (error) {
+      console.error('❌ Error scheduling test notification:', error);
+    }
   }
 
   static async scheduleBillReminder(bill: Bill) {
@@ -62,42 +151,36 @@ export class NotificationService {
       const now = new Date();
       const dueDate = new Date(bill.nextDueDate);
       
-      console.log('Scheduling notification for bill:', {
-        name: bill.name,
-        dueDate: format(dueDate, 'yyyy-MM-dd HH:mm'),
-        notificationTime: bill.notificationTime,
-        isPaid: bill.isPaid,
-        notifyUntilPaid: bill.notifyUntilPaid,
-        currentTime: format(now, 'yyyy-MM-dd HH:mm')
-      });
+      console.log('=== SCHEDULING BILL NOTIFICATION ===');
+      console.log('Bill:', bill.name);
+      console.log('Due date:', format(dueDate, 'yyyy-MM-dd HH:mm'));
+      console.log('Notification time:', bill.notificationTime);
+      console.log('Is paid:', bill.isPaid);
+      console.log('Notify until paid:', bill.notifyUntilPaid);
+      console.log('Current time:', format(now, 'yyyy-MM-dd HH:mm'));
       
-      // Don't schedule if bill is already paid
       if (bill.isPaid) {
-        console.log('Bill is already paid, not scheduling notification');
+        console.log('❌ Bill is paid, not scheduling notification');
         return;
       }
 
-      // Cancel any existing notifications for this bill first
       await this.cancelBillReminder(bill.id);
 
       const notifications: any[] = [];
-
-      // Parse the notification time for the due date
       const notificationDateTime = this.parseNotificationTime(bill.notificationTime, dueDate);
       
-      console.log('Notification will be scheduled for:', format(notificationDateTime, 'yyyy-MM-dd HH:mm:ss'));
+      console.log('Target notification time:', format(notificationDateTime, 'yyyy-MM-dd HH:mm:ss'));
 
-      // If the notification time hasn't passed yet, schedule the main notification
+      // Main notification
       if (isAfter(notificationDateTime, now)) {
-        console.log('Scheduling main notification (time is in future)');
+        console.log('✅ Scheduling main notification (future time)');
         notifications.push({
           title: '💰 Bill Reminder',
-          body: `${bill.name} - ${bill.amount} is due ${format(dueDate, 'MMM dd, yyyy')}`,
+          body: `${bill.name} - $${bill.amount} is due ${format(dueDate, 'MMM dd, yyyy')}`,
           id: this.generateNotificationId(bill.id, 0),
           schedule: { at: notificationDateTime },
           sound: 'default',
-          attachments: undefined,
-          actionTypeId: '',
+          channelId: 'bill-reminders',
           extra: {
             billId: bill.id,
             billName: bill.name,
@@ -105,50 +188,39 @@ export class NotificationService {
           },
         });
       } else {
-        // If notification time has passed but we should still notify
-        console.log('Notification time has passed');
-        
-        // If the bill is overdue or due today, send immediate notification
-        if (isBefore(dueDate, now) || format(dueDate, 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd')) {
-          console.log('Scheduling immediate notification (overdue or due today)');
-          // Schedule for 5 seconds from now to ensure it triggers
-          const immediateTime = addMinutes(now, 1);
-          notifications.push({
-            title: '⚠️ Bill Reminder',
-            body: `${bill.name} - ${bill.amount} is ${isPast(dueDate) ? 'OVERDUE' : 'due today'}!`,
-            id: this.generateNotificationId(bill.id, 0),
-            schedule: { at: immediateTime },
-            sound: 'default',
-            attachments: undefined,
-            actionTypeId: '',
-            extra: {
-              billId: bill.id,
-              billName: bill.name,
-              type: 'main',
-            },
-          });
-        }
+        console.log('⚠️ Notification time has passed, scheduling immediate notification');
+        const immediateTime = addMinutes(now, 0.1); // 6 seconds from now
+        notifications.push({
+          title: '⚠️ Bill Reminder',
+          body: `${bill.name} - $${bill.amount} is ${isPast(dueDate) ? 'OVERDUE' : 'due today'}!`,
+          id: this.generateNotificationId(bill.id, 0),
+          schedule: { at: immediateTime },
+          sound: 'default',
+          channelId: 'bill-reminders',
+          extra: {
+            billId: bill.id,
+            billName: bill.name,
+            type: 'main',
+          },
+        });
       }
 
-      // If "Notify until paid" is enabled, schedule recurring 2-hour reminders
+      // Recurring 2-hour reminders if enabled
       if (bill.notifyUntilPaid && !bill.isPaid) {
-        console.log('Scheduling recurring 2-hour reminders (notify until paid is enabled)');
+        console.log('✅ Scheduling recurring 2-hour reminders');
         
-        // Schedule next 12 reminders (24 hours worth of 2-hour intervals)
         for (let i = 1; i <= 12; i++) {
           const reminderTime = addHours(now, i * 2);
           
-          // Only schedule if reminder time is after now
           if (isAfter(reminderTime, now)) {
-            console.log(`Scheduling recurring reminder ${i} at:`, format(reminderTime, 'yyyy-MM-dd HH:mm:ss'));
+            console.log(`  Reminder ${i}: ${format(reminderTime, 'yyyy-MM-dd HH:mm:ss')}`);
             notifications.push({
               title: '🔔 Bill Reminder',
-              body: `Don't forget: ${bill.name} - ${bill.amount} ${isPast(dueDate) ? 'is OVERDUE' : `due ${format(dueDate, 'MMM dd')}`}`,
+              body: `Don't forget: ${bill.name} - $${bill.amount} ${isPast(dueDate) ? 'is OVERDUE' : `due ${format(dueDate, 'MMM dd')}`}`,
               id: this.generateNotificationId(bill.id, i),
               schedule: { at: reminderTime },
               sound: 'default',
-              attachments: undefined,
-              actionTypeId: '',
+              channelId: 'bill-reminders',
               extra: {
                 billId: bill.id,
                 billName: bill.name,
@@ -161,26 +233,23 @@ export class NotificationService {
       }
 
       if (notifications.length > 0) {
-        console.log(`Scheduling ${notifications.length} notification(s) for bill: ${bill.name}`);
-        
-        // Log all notification times for debugging
-        notifications.forEach((notif, index) => {
-          console.log(`  Notification ${index + 1}: ${format(notif.schedule.at, 'yyyy-MM-dd HH:mm:ss')} - ${notif.body}`);
-        });
+        console.log(`📤 Scheduling ${notifications.length} notification(s)`);
         
         await LocalNotifications.schedule({ notifications });
         
-        // Verify scheduled notifications
+        // Verify scheduling
         const pending = await LocalNotifications.getPending();
+        const billNotifs = pending.notifications.filter((n: any) => n.extra?.billId === bill.id);
+        console.log(`✅ Verified: ${billNotifs.length} notifications queued for this bill`);
         console.log('Total pending notifications:', pending.notifications.length);
-        console.log('Pending notifications for this bill:', 
-          pending.notifications.filter(n => n.extra?.billId === bill.id).length
-        );
       } else {
-        console.log('No notifications to schedule for this bill');
+        console.log('❌ No notifications to schedule');
       }
+      
+      console.log('=== SCHEDULING COMPLETE ===');
     } catch (error) {
-      console.error('Error scheduling bill reminder:', error);
+      console.error('❌ Error scheduling bill reminder:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
     }
   }
 
@@ -188,12 +257,9 @@ export class NotificationService {
     if (!this.isNative) return;
 
     try {
-      console.log('Canceling all notifications for bill:', billId);
+      console.log('🗑️ Canceling notifications for bill:', billId);
       
-      // Get all pending notifications
       const pending = await LocalNotifications.getPending();
-      
-      // Find all notifications for this bill
       const billNotifications = pending.notifications.filter(
         (n: any) => n.extra?.billId === billId
       );
@@ -203,68 +269,71 @@ export class NotificationService {
         await LocalNotifications.cancel({ 
           notifications: billNotifications.map((n: any) => ({ id: n.id })) 
         });
-        console.log('Notifications cancelled successfully');
+        console.log('✅ Notifications cancelled');
       } else {
         console.log('No notifications found for this bill');
       }
     } catch (error) {
-      console.error('Error canceling bill reminder:', error);
+      console.error('❌ Error canceling notifications:', error);
     }
   }
 
   static async scheduleAllBills(bills: Bill[]) {
     if (!this.isNative) return;
 
-    console.log('Scheduling notifications for all bills:', bills.length);
+    console.log('=== SCHEDULING ALL BILLS ===');
+    console.log('Total bills:', bills.length);
+    console.log('Unpaid bills:', bills.filter(b => !b.isPaid).length);
     
-    // Cancel all existing notifications first
     try {
       const pending = await LocalNotifications.getPending();
-      console.log('Clearing existing notifications:', pending.notifications.length);
+      console.log(`Clearing ${pending.notifications.length} existing notifications`);
+      
       if (pending.notifications.length > 0) {
         await LocalNotifications.cancel({ 
           notifications: pending.notifications.map(n => ({ id: n.id })) 
         });
       }
     } catch (error) {
-      console.error('Error clearing old notifications:', error);
+      console.error('Error clearing notifications:', error);
     }
 
-    // Schedule notifications for all unpaid bills
     for (const bill of bills) {
       if (!bill.isPaid) {
+        console.log(`\n--- Scheduling: ${bill.name} ---`);
         await this.scheduleBillReminder(bill);
       }
     }
     
-    // Log final state
     try {
       const pending = await LocalNotifications.getPending();
-      console.log('Total notifications scheduled:', pending.notifications.length);
+      console.log(`\n✅ TOTAL NOTIFICATIONS SCHEDULED: ${pending.notifications.length}`);
     } catch (error) {
-      console.error('Error checking pending notifications:', error);
+      console.error('Error checking final count:', error);
     }
+    
+    console.log('=== ALL BILLS SCHEDULED ===');
   }
 
   static async showBillPaidNotification(billName: string, amount: number) {
     if (!this.isNative) return;
 
     try {
-      console.log('Showing bill paid notification:', billName);
+      console.log('=== SHOWING BILL PAID NOTIFICATION ===');
+      console.log('Bill:', billName);
       
       const now = new Date();
-      const notificationTime = addMinutes(now, 0.1); // Show almost immediately
+      const notificationTime = addMinutes(now, 0.05); // 3 seconds
       
       await LocalNotifications.schedule({
         notifications: [
           {
             title: '✅ Bill Paid!',
-            body: `${billName} - ${amount} has been marked as paid.`,
+            body: `${billName} - $${amount} has been marked as paid.`,
             id: Math.floor(Math.random() * 1000000),
             schedule: { at: notificationTime },
             sound: 'default',
-            attachments: undefined,
-            actionTypeId: '',
+            channelId: 'bill-paid',
             extra: {
               type: 'bill_paid',
               billName: billName,
@@ -273,9 +342,9 @@ export class NotificationService {
         ],
       });
       
-      console.log('Bill paid notification scheduled');
+      console.log('✅ Bill paid notification scheduled');
     } catch (error) {
-      console.error('Error showing bill paid notification:', error);
+      console.error('❌ Error showing bill paid notification:', error);
     }
   }
 
@@ -284,10 +353,10 @@ export class NotificationService {
 
     try {
       const status = await LocalNotifications.checkPermissions();
-      console.log('Notification permission status:', status);
+      console.log('Permission status:', status);
       return status;
     } catch (error) {
-      console.error('Error checking notification permissions:', error);
+      console.error('Error checking permissions:', error);
       return { display: 'denied' };
     }
   }
@@ -296,30 +365,36 @@ export class NotificationService {
     if (!this.isNative) return { display: 'granted' };
 
     try {
+      console.log('Requesting notification permissions...');
       const status = await LocalNotifications.requestPermissions();
-      console.log('Requested notification permissions:', status);
+      console.log('Permission result:', status);
       return status;
     } catch (error) {
-      console.error('Error requesting notification permissions:', error);
+      console.error('Error requesting permissions:', error);
       return { display: 'denied' };
     }
   }
 
-  // Utility method to list all pending notifications for debugging
   static async listPendingNotifications() {
-    if (!this.isNative) return;
+    if (!this.isNative) return [];
 
     try {
       const pending = await LocalNotifications.getPending();
       console.log('=== PENDING NOTIFICATIONS ===');
       console.log('Total:', pending.notifications.length);
       pending.notifications.forEach((notif: any) => {
-        console.log(`ID: ${notif.id}, Time: ${notif.schedule?.at ? format(new Date(notif.schedule.at), 'yyyy-MM-dd HH:mm:ss') : 'N/A'}, Title: ${notif.title}`);
+        const scheduleTime = notif.schedule?.at ? format(new Date(notif.schedule.at), 'yyyy-MM-dd HH:mm:ss') : 'N/A';
+        console.log(`ID: ${notif.id}`);
+        console.log(`  Time: ${scheduleTime}`);
+        console.log(`  Title: ${notif.title}`);
+        console.log(`  Body: ${notif.body}`);
+        console.log(`  Extra:`, notif.extra);
       });
       console.log('=============================');
       return pending.notifications;
     } catch (error) {
-      console.error('Error listing pending notifications:', error);
+      console.error('Error listing notifications:', error);
+      return [];
     }
   }
 }
