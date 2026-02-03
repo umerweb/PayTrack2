@@ -12,7 +12,12 @@
           "package_name": "com.billreminder.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "799571052313-kknbqel4laks5avpk0o79er816b7a22v.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCVP7U2i8jNzsWMWWUprG1NaIFgYGWO1Ng"
@@ -20,7 +25,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "799571052313-kknbqel4laks5avpk0o79er816b7a22v.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

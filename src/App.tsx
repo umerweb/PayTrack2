@@ -32,7 +32,7 @@ function App() {
         id: 'bill-reminders',
         name: 'Bill Reminders',
         importance: 5, // Max importance, shows heads-up notification
-        sound: 'default',
+        sound: 'noti',
         vibration: true,
       });
       console.log('✅ Notification channel created');
