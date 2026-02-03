@@ -23,35 +23,50 @@ const queryClient = new QueryClient();
 function App() {
 
   useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
+  if (!Capacitor.isNativePlatform()) return;
 
-    const initPushNotifications = async () => {
-      const permission = await PushNotifications.requestPermissions();
+  const initPushNotifications = async () => {
+    // 1️⃣ Create notification channel (Android only)
+    try {
+      await PushNotifications.createChannel({
+        id: 'bill-reminders',
+        name: 'Bill Reminders',
+        importance: 5, // Max importance, shows heads-up notification
+        sound: 'default',
+        vibration: true,
+      });
+      console.log('✅ Notification channel created');
+    } catch (error) {
+      console.warn('⚠️ Channel creation failed:', error);
+    }
 
-      if (permission.receive === "granted") {
-        await PushNotifications.register();
-      }
-    };
+    // 2️⃣ Request permission and register
+    const permission = await PushNotifications.requestPermissions();
+    if (permission.receive === 'granted') {
+      await PushNotifications.register();
+    }
+  };
 
-    // Register listeners ONCE
-    PushNotifications.addListener("registration", token => {
-      console.log("✅ Push token:", token.value);
-    });
+  // 3️⃣ Register listeners ONCE
+  PushNotifications.addListener('registration', token => {
+    console.log('✅ Push token:', token.value);
+  });
 
-    PushNotifications.addListener("registrationError", error => {
-      console.error("❌ Push registration error:", error);
-    });
+  PushNotifications.addListener('registrationError', error => {
+    console.error('❌ Push registration error:', error);
+  });
 
-    PushNotifications.addListener("pushNotificationReceived", notification => {
-      console.log("📩 Push received:", notification);
-    });
+  PushNotifications.addListener('pushNotificationReceived', notification => {
+    console.log('📩 Push received:', notification);
+  });
 
-    PushNotifications.addListener("pushNotificationActionPerformed", action => {
-      console.log("👉 Push action:", action);
-    });
+  PushNotifications.addListener('pushNotificationActionPerformed', action => {
+    console.log('👉 Push action:', action);
+  });
 
-    initPushNotifications();
-  }, []);
+  initPushNotifications();
+}, []);
+
 
   return (
     <QueryClientProvider client={queryClient}>
