@@ -37,7 +37,7 @@ function App() {
       });
       console.log('✅ Notification channel created');
     } catch (error) {
-      console.warn('⚠️ Channel creation failed:', error);
+      console.warn('⚠️ Channel creation faile:', error);
     }
 
     // 2️⃣ Request permission and register
