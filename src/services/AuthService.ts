@@ -36,7 +36,7 @@ export class AuthService {
     console.log('Using mobile OAuth flow');
     
     try {
-      const redirectUrl = `${window.location.origin}/dashboard`;
+      const redirectUrl = 'com.billreminder.app://dashboard';
       
       // Get the OAuth URL from Supabase
       const { data, error } = await supabase.auth.signInWithOAuth({
