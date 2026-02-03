@@ -5,6 +5,7 @@ import { format, addHours, addMinutes, isAfter, isPast } from 'date-fns';
 
 export class NotificationService {
   private static isNative = Capacitor.isNativePlatform();
+  private static channelsCreated = false;
 
   static async initialize() {
     if (!this.isNative) {
@@ -33,10 +34,11 @@ export class NotificationService {
       
       console.log('✅ Notification permissions granted');
       
-      // Register notification channels for Android
-      if (Capacitor.getPlatform() === 'android') {
-        console.log('Creating Android notification channels...');
+      // CRITICAL: Create notification channels for Android
+      if (Capacitor.getPlatform() === 'android' && !this.channelsCreated) {
+        console.log('📱 CREATING ANDROID NOTIFICATION CHANNELS...');
         await this.createAndroidChannels();
+        this.channelsCreated = true;
       }
       
       // Set up listeners
@@ -58,31 +60,47 @@ export class NotificationService {
 
   private static async createAndroidChannels() {
     try {
-      // Create notification channels for Android (required for Android 8.0+)
-      const channels = [
-        {
+      console.log('🔧 Creating Android notification channels...');
+      
+      // CRITICAL: LocalNotifications.createChannel requires @capacitor/local-notifications 5.0+
+      // For older versions, channels are created automatically when scheduling
+      
+      // Channel 1: Bill Reminders
+      try {
+        await LocalNotifications.createChannel({
           id: 'bill-reminders',
           name: 'Bill Reminders',
           description: 'Notifications for upcoming bill payments',
           importance: 5, // IMPORTANCE_HIGH
           visibility: 1, // VISIBILITY_PUBLIC
-          sound: 'default',
+          sound: 'default.wav',
           vibration: true,
-        },
-        {
+        });
+        console.log('✅ Created channel: bill-reminders');
+      } catch (e) {
+        console.log('Note: createChannel not available, will create on first notification');
+      }
+      
+      // Channel 2: Bill Paid Confirmations
+      try {
+        await LocalNotifications.createChannel({
           id: 'bill-paid',
-          name: 'Bill Paid',
+          name: 'Bill Paid Confirmations',
           description: 'Confirmation when bills are marked as paid',
           importance: 4, // IMPORTANCE_DEFAULT
-          visibility: 1,
-          sound: 'default',
+          visibility: 1, // VISIBILITY_PUBLIC
+          sound: 'default.wav',
           vibration: true,
-        }
-      ];
+        });
+        console.log('✅ Created channel: bill-paid');
+      } catch (e) {
+        console.log('Note: createChannel not available, will create on first notification');
+      }
       
-      console.log('Creating Android notification channels:', channels);
+      console.log('✅ Android notification channels configured');
     } catch (error) {
       console.error('Error creating Android channels:', error);
+      // Don't fail initialization if channels fail - they'll be created on first notification
     }
   }
 
@@ -108,24 +126,29 @@ export class NotificationService {
       return;
     }
 
-    console.log('=== TESTING NOTIFICATION (5 seconds) ===');
+    console.log('=== TESTING NOTIFICATION (6 seconds) ===');
     const testTime = addMinutes(new Date(), 0.1); // 6 seconds from now
     
     try {
+      const notification: any = {
+        title: '🧪 Test Notification',
+        body: 'This is a test notification from Bill Reminder app',
+        id: 999999,
+        schedule: { at: testTime },
+        sound: 'default',
+        extra: {
+          type: 'test',
+        },
+      };
+      
+      // Add channelId for Android
+      if (Capacitor.getPlatform() === 'android') {
+        notification.channelId = 'bill-reminders';
+        console.log('Using Android channel: bill-reminders');
+      }
+      
       await LocalNotifications.schedule({
-        notifications: [
-          {
-            title: '🧪 Test Notification',
-            body: 'This is a test notification from Bill Reminder app',
-            id: 999999,
-            schedule: { at: testTime },
-            sound: 'default',
-            channelId: 'bill-reminders',
-            extra: {
-              type: 'test',
-            },
-          },
-        ],
+        notifications: [notification],
       });
       
       console.log('✅ Test notification scheduled for:', format(testTime, 'yyyy-MM-dd HH:mm:ss'));
@@ -136,6 +159,12 @@ export class NotificationService {
       console.log('Total pending notifications:', pending.notifications.length);
       const testNotif = pending.notifications.find(n => n.id === 999999);
       console.log('Test notification in queue:', !!testNotif);
+      
+      if (testNotif) {
+        console.log('✅ CONFIRMED: Test notification is scheduled and will fire!');
+      } else {
+        console.log('⚠️ WARNING: Test notification not found in queue');
+      }
     } catch (error) {
       console.error('❌ Error scheduling test notification:', error);
     }
@@ -171,38 +200,50 @@ export class NotificationService {
       
       console.log('Target notification time:', format(notificationDateTime, 'yyyy-MM-dd HH:mm:ss'));
 
+      const isAndroid = Capacitor.getPlatform() === 'android';
+
       // Main notification
       if (isAfter(notificationDateTime, now)) {
         console.log('✅ Scheduling main notification (future time)');
-        notifications.push({
+        const mainNotif: any = {
           title: '💰 Bill Reminder',
           body: `${bill.name} - $${bill.amount} is due ${format(dueDate, 'MMM dd, yyyy')}`,
           id: this.generateNotificationId(bill.id, 0),
           schedule: { at: notificationDateTime },
           sound: 'default',
-          channelId: 'bill-reminders',
           extra: {
             billId: bill.id,
             billName: bill.name,
             type: 'main',
           },
-        });
+        };
+        
+        if (isAndroid) {
+          mainNotif.channelId = 'bill-reminders';
+        }
+        
+        notifications.push(mainNotif);
       } else {
         console.log('⚠️ Notification time has passed, scheduling immediate notification');
         const immediateTime = addMinutes(now, 0.1); // 6 seconds from now
-        notifications.push({
+        const immediateNotif: any = {
           title: '⚠️ Bill Reminder',
           body: `${bill.name} - $${bill.amount} is ${isPast(dueDate) ? 'OVERDUE' : 'due today'}!`,
           id: this.generateNotificationId(bill.id, 0),
           schedule: { at: immediateTime },
           sound: 'default',
-          channelId: 'bill-reminders',
           extra: {
             billId: bill.id,
             billName: bill.name,
             type: 'main',
           },
-        });
+        };
+        
+        if (isAndroid) {
+          immediateNotif.channelId = 'bill-reminders';
+        }
+        
+        notifications.push(immediateNotif);
       }
 
       // Recurring 2-hour reminders if enabled
@@ -214,26 +255,33 @@ export class NotificationService {
           
           if (isAfter(reminderTime, now)) {
             console.log(`  Reminder ${i}: ${format(reminderTime, 'yyyy-MM-dd HH:mm:ss')}`);
-            notifications.push({
+            const recurringNotif: any = {
               title: '🔔 Bill Reminder',
               body: `Don't forget: ${bill.name} - $${bill.amount} ${isPast(dueDate) ? 'is OVERDUE' : `due ${format(dueDate, 'MMM dd')}`}`,
               id: this.generateNotificationId(bill.id, i),
               schedule: { at: reminderTime },
               sound: 'default',
-              channelId: 'bill-reminders',
               extra: {
                 billId: bill.id,
                 billName: bill.name,
                 type: 'recurring',
                 interval: i,
               },
-            });
+            };
+            
+            if (isAndroid) {
+              recurringNotif.channelId = 'bill-reminders';
+            }
+            
+            notifications.push(recurringNotif);
           }
         }
       }
 
       if (notifications.length > 0) {
         console.log(`📤 Scheduling ${notifications.length} notification(s)`);
+        console.log(`Platform: ${Capacitor.getPlatform()}`);
+        console.log(`Using channel ID: ${notifications[0].channelId || 'default'}`);
         
         await LocalNotifications.schedule({ notifications });
         
@@ -242,6 +290,11 @@ export class NotificationService {
         const billNotifs = pending.notifications.filter((n: any) => n.extra?.billId === bill.id);
         console.log(`✅ Verified: ${billNotifs.length} notifications queued for this bill`);
         console.log('Total pending notifications:', pending.notifications.length);
+        
+        if (billNotifs.length === 0) {
+          console.log('⚠️ WARNING: No notifications found in queue after scheduling!');
+          console.log('This might be a permission or channel issue');
+        }
       } else {
         console.log('❌ No notifications to schedule');
       }
@@ -325,21 +378,25 @@ export class NotificationService {
       const now = new Date();
       const notificationTime = addMinutes(now, 0.05); // 3 seconds
       
+      const notification: any = {
+        title: '✅ Bill Paid!',
+        body: `${billName} - $${amount} has been marked as paid.`,
+        id: Math.floor(Math.random() * 1000000),
+        schedule: { at: notificationTime },
+        sound: 'default',
+        extra: {
+          type: 'bill_paid',
+          billName: billName,
+        },
+      };
+      
+      // Add channelId for Android
+      if (Capacitor.getPlatform() === 'android') {
+        notification.channelId = 'bill-paid';
+      }
+      
       await LocalNotifications.schedule({
-        notifications: [
-          {
-            title: '✅ Bill Paid!',
-            body: `${billName} - $${amount} has been marked as paid.`,
-            id: Math.floor(Math.random() * 1000000),
-            schedule: { at: notificationTime },
-            sound: 'default',
-            channelId: 'bill-paid',
-            extra: {
-              type: 'bill_paid',
-              billName: billName,
-            },
-          },
-        ],
+        notifications: [notification],
       });
       
       console.log('✅ Bill paid notification scheduled');
@@ -388,6 +445,7 @@ export class NotificationService {
         console.log(`  Time: ${scheduleTime}`);
         console.log(`  Title: ${notif.title}`);
         console.log(`  Body: ${notif.body}`);
+        console.log(`  Channel: ${notif.channelId || 'default'}`);
         console.log(`  Extra:`, notif.extra);
       });
       console.log('=============================');

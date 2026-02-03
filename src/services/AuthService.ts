@@ -1,6 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
 import { Capacitor } from '@capacitor/core';
 import { Browser } from '@capacitor/browser';
+import { App } from '@capacitor/app';
 
 export class AuthService {
   private static isNative = Capacitor.isNativePlatform();
@@ -9,7 +10,7 @@ export class AuthService {
     console.log('Starting Google sign in, isNative:', this.isNative);
 
     if (this.isNative) {
-      // Mobile: Use in-app browser with OAuth
+      // Mobile: Use custom URL scheme with deep linking
       return this.signInWithGoogleMobile();
     } else {
       // Web: Use standard OAuth flow
@@ -33,17 +34,21 @@ export class AuthService {
   }
 
   private static async signInWithGoogleMobile() {
-    console.log('Using mobile OAuth flow');
+    console.log('=== MOBILE GOOGLE OAUTH FLOW ===');
     
     try {
-      const redirectUrl = 'com.billreminder.app://dashboard';
+      // CRITICAL: This is the correct way to handle OAuth in Capacitor mobile apps
       
-      // Get the OAuth URL from Supabase
+      // Step 1: Create the redirect URL with custom scheme
+      const redirectUrl = `com.billreminder.app://login-callback`;
+      console.log('Redirect URL:', redirectUrl);
+      
+      // Step 2: Get the OAuth URL from Supabase WITHOUT auto-redirecting
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: redirectUrl,
-          skipBrowserRedirect: true, // Important for mobile
+          skipBrowserRedirect: true, // CRITICAL: Don't auto-redirect
         },
       });
 
@@ -53,40 +58,73 @@ export class AuthService {
       }
 
       if (!data?.url) {
-        throw new Error('No OAuth URL received');
+        throw new Error('No OAuth URL received from Supabase');
       }
 
-      console.log('Opening OAuth URL in browser:', data.url);
+      console.log('OAuth URL received:', data.url);
 
-      // Open OAuth URL in system browser
-      await Browser.open({ 
-        url: data.url,
-        presentationStyle: 'popover',
-        windowName: '_self'
-      });
-
-      // Listen for the app to come back to foreground with auth token
-      return new Promise((resolve, reject) => {
-        // The auth callback will be handled by Supabase automatically
-        // when the browser redirects back to the app
-        const checkAuth = setInterval(async () => {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            clearInterval(checkAuth);
-            await Browser.close();
-            console.log('Mobile OAuth successful');
-            resolve(session);
+      // Step 3: Set up deep link listener BEFORE opening browser
+      console.log('Setting up deep link listener...');
+      
+      return new Promise(async (resolve, reject) => {
+        // Listen for the app to receive the deep link callback
+        const appUrlListener = await App.addListener('appUrlOpen', async (event) => {
+          console.log('📱 Deep link received:', event.url);
+          
+          // Close the browser
+          await Browser.close().catch(e => console.log('Browser already closed'));
+          
+          // Parse the URL to extract the tokens
+          if (event.url.includes('#access_token=') || event.url.includes('?access_token=')) {
+            console.log('✅ OAuth tokens found in URL');
+            
+            // Supabase will automatically handle the session
+            // Wait a moment for it to process
+            setTimeout(async () => {
+              const { data: { session } } = await supabase.auth.getSession();
+              
+              if (session) {
+                console.log('✅ Session established:', session.user.email);
+                await appUrlListener.remove();
+                resolve(session);
+              } else {
+                console.error('❌ No session after OAuth callback');
+                await appUrlListener.remove();
+                reject(new Error('Authentication failed - no session created'));
+              }
+            }, 1000);
+          } else if (event.url.includes('error=')) {
+            console.error('❌ OAuth error in URL');
+            await appUrlListener.remove();
+            reject(new Error('OAuth authentication failed'));
           }
-        }, 1000);
+        });
 
         // Timeout after 5 minutes
-        setTimeout(() => {
-          clearInterval(checkAuth);
-          reject(new Error('OAuth timeout'));
+        const timeout = setTimeout(async () => {
+          console.log('⏱️ OAuth timeout');
+          await appUrlListener.remove();
+          Browser.close().catch(e => console.log('Browser already closed'));
+          reject(new Error('Authentication timeout - please try again'));
         }, 300000);
+
+        // Step 4: Open OAuth URL in system browser
+        console.log('🌐 Opening OAuth URL in browser...');
+        Browser.open({ 
+          url: data.url,
+          windowName: '_self',
+          presentationStyle: 'fullscreen', // Use fullscreen for better UX
+        }).then(() => {
+          console.log('✅ Browser opened successfully');
+        }).catch(async (error) => {
+          console.error('❌ Error opening browser:', error);
+          clearTimeout(timeout);
+          await appUrlListener.remove();
+          reject(error);
+        });
       });
     } catch (error) {
-      console.error('Mobile Google sign-in error:', error);
+      console.error('❌ Mobile Google sign-in error:', error);
       throw error;
     }
   }
