@@ -33,12 +33,51 @@ export class AuthService {
     }
   }
 
+  private static extractTokensFromUrl(url: string): { access_token?: string; refresh_token?: string; error?: string; error_description?: string } {
+    console.log('Extracting tokens from URL:', url);
+    
+    const tokens: any = {};
+    
+    // Handle both hash (#) and query (?) parameters
+    const hashPart = url.split('#')[1];
+    const queryPart = url.split('?')[1];
+    
+    const parseParams = (paramString: string) => {
+      if (!paramString) return;
+      
+      const params = new URLSearchParams(paramString);
+      
+      if (params.get('access_token')) {
+        tokens.access_token = params.get('access_token');
+      }
+      if (params.get('refresh_token')) {
+        tokens.refresh_token = params.get('refresh_token');
+      }
+      if (params.get('error')) {
+        tokens.error = params.get('error');
+      }
+      if (params.get('error_description')) {
+        tokens.error_description = params.get('error_description');
+      }
+    };
+    
+    // Parse both parts
+    parseParams(hashPart);
+    parseParams(queryPart);
+    
+    console.log('Extracted tokens:', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      hasError: !!tokens.error
+    });
+    
+    return tokens;
+  }
+
   private static async signInWithGoogleMobile() {
     console.log('=== MOBILE GOOGLE OAUTH FLOW ===');
     
     try {
-      // CRITICAL: This is the correct way to handle OAuth in Capacitor mobile apps
-      
       // Step 1: Create the redirect URL with custom scheme
       const redirectUrl = `com.billreminder.app://login-callback`;
       console.log('Redirect URL:', redirectUrl);
@@ -61,51 +100,94 @@ export class AuthService {
         throw new Error('No OAuth URL received from Supabase');
       }
 
-      console.log('OAuth URL received:', data.url);
+      console.log('OAuth URL received');
 
       // Step 3: Set up deep link listener BEFORE opening browser
       console.log('Setting up deep link listener...');
       
-      return new Promise(async (resolve, reject) => {
+      return new Promise((resolve, reject) => {
+        let isProcessing = false; // Prevent duplicate processing
+        
         // Listen for the app to receive the deep link callback
-        const appUrlListener = await App.addListener('appUrlOpen', async (event) => {
+        const appUrlListenerPromise = App.addListener('appUrlOpen', async (event) => {
           console.log('📱 Deep link received:', event.url);
           
-          // Close the browser
-          await Browser.close().catch(e => console.log('Browser already closed'));
+          if (isProcessing) {
+            console.log('Already processing, ignoring duplicate callback');
+            return;
+          }
           
-          // Parse the URL to extract the tokens
-          if (event.url.includes('#access_token=') || event.url.includes('?access_token=')) {
-            console.log('✅ OAuth tokens found in URL');
+          isProcessing = true;
+          
+          // Close the browser
+          try {
+            await Browser.close();
+            console.log('✅ Browser closed');
+          } catch (e) {
+            console.log('Browser already closed or error closing:', e);
+          }
+          
+          // Extract tokens from URL
+          const tokens = this.extractTokensFromUrl(event.url);
+          
+          // Check for errors
+          if (tokens.error) {
+            console.error('❌ OAuth error:', tokens.error, tokens.error_description);
+            appUrlListenerPromise.then(listener => listener.remove());
+            reject(new Error(tokens.error_description || tokens.error));
+            return;
+          }
+          
+          // Check if we have tokens
+          if (!tokens.access_token) {
+            console.error('❌ No access token found in URL');
+            console.log('Full URL:', event.url);
+            appUrlListenerPromise.then(listener => listener.remove());
+            reject(new Error('No access token received from OAuth'));
+            return;
+          }
+          
+          console.log('✅ OAuth tokens found, creating session...');
+          
+          try {
+            // CRITICAL: Use setSession to create session from tokens
+            const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+              access_token: tokens.access_token,
+              refresh_token: tokens.refresh_token || '',
+            });
             
-            // Supabase will automatically handle the session
-            // Wait a moment for it to process
-            setTimeout(async () => {
-              const { data: { session } } = await supabase.auth.getSession();
-              
-              if (session) {
-                console.log('✅ Session established:', session.user.email);
-                await appUrlListener.remove();
-                resolve(session);
-              } else {
-                console.error('❌ No session after OAuth callback');
-                await appUrlListener.remove();
-                reject(new Error('Authentication failed - no session created'));
-              }
-            }, 1000);
-          } else if (event.url.includes('error=')) {
-            console.error('❌ OAuth error in URL');
-            await appUrlListener.remove();
-            reject(new Error('OAuth authentication failed'));
+            if (sessionError) {
+              console.error('❌ Error creating session:', sessionError);
+              appUrlListenerPromise.then(listener => listener.remove());
+              reject(sessionError);
+              return;
+            }
+            
+            if (!sessionData.session) {
+              console.error('❌ No session created from tokens');
+              appUrlListenerPromise.then(listener => listener.remove());
+              reject(new Error('Failed to create session from OAuth tokens'));
+              return;
+            }
+            
+            console.log('✅ Session created successfully:', sessionData.session.user.email);
+            appUrlListenerPromise.then(listener => listener.remove());
+            resolve(sessionData.session);
+          } catch (error) {
+            console.error('❌ Exception while creating session:', error);
+            appUrlListenerPromise.then(listener => listener.remove());
+            reject(error);
           }
         });
 
         // Timeout after 5 minutes
-        const timeout = setTimeout(async () => {
+        const timeout = setTimeout(() => {
           console.log('⏱️ OAuth timeout');
-          await appUrlListener.remove();
-          Browser.close().catch(e => console.log('Browser already closed'));
-          reject(new Error('Authentication timeout - please try again'));
+          if (!isProcessing) {
+            appUrlListenerPromise.then(listener => listener.remove());
+            Browser.close().catch(e => console.log('Browser already closed'));
+            reject(new Error('Authentication timeout - please try again'));
+          }
         }, 300000);
 
         // Step 4: Open OAuth URL in system browser
@@ -113,13 +195,12 @@ export class AuthService {
         Browser.open({ 
           url: data.url,
           windowName: '_self',
-          presentationStyle: 'fullscreen', // Use fullscreen for better UX
         }).then(() => {
           console.log('✅ Browser opened successfully');
-        }).catch(async (error) => {
+        }).catch((error) => {
           console.error('❌ Error opening browser:', error);
           clearTimeout(timeout);
-          await appUrlListener.remove();
+          appUrlListenerPromise.then(listener => listener.remove());
           reject(error);
         });
       });
